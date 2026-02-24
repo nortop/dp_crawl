@@ -12,5 +12,37 @@ This crawler automatically:
 Designed for:
 * Dark pattern research
 * GDPR / PDPA compliance audits
-* CMP evaluation
+* Consent Management Platform (CMP) evaluation
 * Large-scale web measurement studies
+
+
+🧠 Core Idea: DP3 Differential Model
+Traditional crawlers often produce false positives when detecting tracking.
+This project uses isolated browser contexts to compare tracking behavior across states:
+State	Description
+S0	Fresh visit (no interaction)
+S1	Explicit Reject All
+S2	Explicit Accept All (optional)
+
+DP3 is triggered when:
+* Tracking exists in S0 (before consent)
+* Tracking decreases after Reject (S1)
+* This reduces noise from lazy-loading and script timing.
+
+📦 Installation
+Requirements
+* Node.js ≥ 18
+* Playwright
+
+npm install
+npx playwright install
+
+📁 Evidence Structure
+evidence/
+  domain/
+    desktop/
+      run1_banner.png
+      run1_manage.png
+Screenshots are captured before interaction and after navigation to settings.
+
+📄 Example Input
