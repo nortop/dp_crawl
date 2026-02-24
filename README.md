@@ -1,7 +1,7 @@
 🕵️ Cookie Banner Dark Pattern Crawler (DP3 Differential)
 Large-scale automated measurement of cookie banners and dark patterns with pre-consission tracking detection (DP3 Differential Model).
 
-🚀 What This Project Does
+## 🚀 What This Project Does
 This crawler automatically:
 * Detects cookie banners
 * Measures UI asymmetry (Accept vs Reject)
@@ -16,7 +16,7 @@ Designed for:
 * Large-scale web measurement studies
 
 
-🧠 Core Idea: DP3 Differential Model
+## 🧠 Core Idea: DP3 Differential Model
 Traditional crawlers often produce false positives when detecting tracking.
 This project uses isolated browser contexts to compare tracking behavior across states:
 State	Description
@@ -24,12 +24,12 @@ S0	Fresh visit (no interaction)
 S1	Explicit Reject All
 S2	Explicit Accept All (optional)
 
-DP3 is triggered when:
+## DP3 is triggered when:
 * Tracking exists in S0 (before consent)
 * Tracking decreases after Reject (S1)
 * This reduces noise from lazy-loading and script timing.
 
-📦 Installation
+## 📦 Installation
 Requirements
 * Node.js ≥ 18
 * Playwright
@@ -37,7 +37,7 @@ Requirements
 npm install
 npx playwright install
 
-📁 Evidence Structure
+## 📁 Evidence Structure
 evidence/
   domain/
     desktop/
@@ -45,4 +45,13 @@ evidence/
       run1_manage.png
 Screenshots are captured before interaction and after navigation to settings.
 
-📄 Example Input
+## 🔬 Research Notes
+This crawler is suitable for:
+* Academic publication
+* Regulatory reporting
+* Open web transparency projects
+If used in research:
+* Report wait window
+* Report concurrency
+* Archive raw CSV + evidence
+* Separate observation vs domain-level metrics
