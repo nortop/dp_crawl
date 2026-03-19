@@ -31,7 +31,7 @@ S2	Explicit Accept All (optional)
 
 ## 📦 Installation
 Requirements
-* Node.js ≥ 18
+* Python v3
 * Playwright
 
 npm install
