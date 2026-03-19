@@ -249,6 +249,14 @@ function parseCsvLine(line: string): string[] {
   return out;
 }
 
+function progressTag(domain: string, device: DeviceKind, runId: number): string {
+  return `[${domain}|${device}|run${runId}]`;
+}
+
+function logStep(domain: string, device: DeviceKind, runId: number, step: string) {
+  console.log(`${progressTag(domain, device, runId)} ${step}`);
+}
+
 // ---------- Page scanning ----------
 async function detectLang(page: Page): Promise<string> {
   try {
@@ -576,7 +584,16 @@ async function measureConsentState(
       // @ts-ignore
       if (typeof rejectViaPreferences === "function") {
         // @ts-ignore
-        await rejectViaPreferences(page, { notes: "" }, path.join(ARGS.evidence, safeSlug(domain), device), 0);
+        await rejectViaPreferences(
+          page,
+          { notes: "" },
+          path.join(ARGS.evidence, safeSlug(domain), device),
+          0,
+          () => {
+            // Check pre-load tracking once the setup page is fully open at step 2.
+            rec.summarizeTracking();
+          }
+        );
       } else {
         await clickBestEffort(page, MANAGE_RE);
         await page.waitForTimeout(800);
@@ -624,8 +641,12 @@ async function measureDP3Differential(
   pre_only_cookies_sample: string;
   canvas_fp_pre: number;
 }> {
+  const domain = normalizeDomain(cand.domain);
+  logStep(domain, device, 0, "DP3 differential: measuring S0 pre-consent");
   const S0 = await measureConsentState(browser, cand, device, "S0", ARGS.dp3WaitMs, ARGS.dp3CaptureCanvasFp);
+  logStep(domain, device, 0, "DP3 differential: measuring S1 reject");
   const S1 = await measureConsentState(browser, cand, device, "S1", ARGS.dp3WaitMs, ARGS.dp3CaptureCanvasFp);
+  logStep(domain, device, 0, "DP3 differential: measuring S2 accept");
   const S2 = ARGS.dp3IncludeAccept ? await measureConsentState(browser, cand, device, "S2", ARGS.dp3WaitMs, ARGS.dp3CaptureCanvasFp) : null;
 
   const preOnlyEndpoints = differentialSet(S0.endpoints_tracking, S1.endpoints_tracking);
@@ -657,6 +678,7 @@ async function runOne(browser: Browser, cand: CandidateRow, device: DeviceKind, 
 
   const evidenceDir = path.join(ARGS.evidence, safeSlug(domain), device);
   ensureDir(evidenceDir);
+  logStep(domain, device, runId, "Starting");
 
   const obs: Obs = {
     // IDs
@@ -760,6 +782,7 @@ async function runOne(browser: Browser, cand: CandidateRow, device: DeviceKind, 
 
   for (const u of tryUrls) {
     try {
+      logStep(domain, device, runId, `Trying ${u}`);
       await page.goto(u, { waitUntil: "domcontentloaded", timeout: ARGS.timeoutMs });
       await page.waitForTimeout(ARGS.settleMs);
       await passInterstitials(page, obs, evidenceDir, runId, 3); // max 3 steps
@@ -776,6 +799,7 @@ async function runOne(browser: Browser, cand: CandidateRow, device: DeviceKind, 
     obs.status = "error";
     obs.blocked_reason = lastErr || "navigation failed";
     await context.close();
+    logStep(domain, device, runId, "Navigation failed");
     return obs;
   }
 
@@ -788,7 +812,7 @@ async function runOne(browser: Browser, cand: CandidateRow, device: DeviceKind, 
   // obs.third_party_before_consent = allReqHostsBefore.size;
 
   if (await detectTurnstile(page)) {
-    console.log(`[TURNSTILE] ${domain} - waiting for manual solve...`);
+    logStep(domain, device, runId, "Cloudflare Turnstile detected");
 
     // await page.waitForFunction(() => {
     //   const iframe = document.querySelector("iframe[src*='challenges.cloudflare.com']");
@@ -806,12 +830,13 @@ async function runOne(browser: Browser, cand: CandidateRow, device: DeviceKind, 
       return !hasGrayscale;
     }, { timeout: 10000 }).catch(() => {}); // ไม่จำเป็นต้อง error ถ้า timeout
 
-    console.log(`[TURNSTILE] solved, continuing...`);
+    logStep(domain, device, runId, "Turnstile resolved, marking blocked");
     obs.status = "blocked_by_antibot"
     obs.blocked_reason = "cloudflare_turnstile"
     return obs;
   }
 
+  logStep(domain, device, runId, "Measuring DP4");
   // วัด DP4 (ควรวัดก่อนคลิกใด ๆ เพื่อดู banner จริง)
   const salience = await measureButtonSalience(page);
   obs.dp4_flag = salience.dp4Flag;
@@ -830,6 +855,7 @@ async function runOne(browser: Browser, cand: CandidateRow, device: DeviceKind, 
   }
   obs.third_party_before_consent = tp.size;
 
+  logStep(domain, device, runId, "Scanning banner and CMP");
   // Basic scans
   obs.language_detected = await detectLang(page);
   obs.cms_cmp_vendor = await detectCmpVendor(page);
@@ -854,8 +880,7 @@ async function runOne(browser: Browser, cand: CandidateRow, device: DeviceKind, 
   obs.reject_all_first_layer = rejectFound ? 1 : 0;
   obs.manage_first_layer     = manageFound ? 1 : 0;
   obs.close_button_present   = closeFound ? 1 : 0;
-
-
+  logStep(domain, device, runId, "Measuring reject path");
   // click depth approximations
   if (obs.accept_all_first_layer) obs.clicks_accept_all = 1;
 
@@ -875,6 +900,7 @@ async function runOne(browser: Browser, cand: CandidateRow, device: DeviceKind, 
     }
   }
 
+  logStep(domain, device, runId, "Inspecting manage/setup for DP3");
   // Try open manage panel for extra evidence + toggles + reject-all inside
   let manageOpened = false;
   if (manageFound) {
@@ -919,6 +945,7 @@ async function runOne(browser: Browser, cand: CandidateRow, device: DeviceKind, 
     obs.dp2_flag = delta >= 1 ? 1 : 0;
   }
 
+  logStep(domain, device, runId, "Measuring DP5 and DP7");
   // Attempt reject-all action to measure DP7 (choice not respected)
   // Strategy:
   // 1) If reject button exists in first layer -> click it.
@@ -982,6 +1009,7 @@ async function runOne(browser: Browser, cand: CandidateRow, device: DeviceKind, 
     obs.has_reject_all_anywhere = obs.reject_all_first_layer || manageOpened ? "" : 0;
   }
 
+  logStep(domain, device, runId, "Measuring DP6 and DP8");
   // วัด DP6 (ต้องมี bannerText)
   const bannerElem = page.locator('div[class*="cookie"], div[id*="cookie"], .cookie-banner').first();
   const bannerText = await bannerElem.innerText().catch(() => '');
@@ -991,6 +1019,7 @@ async function runOne(browser: Browser, cand: CandidateRow, device: DeviceKind, 
   obs.dp8_flag = await detectWithdrawalDifficulty(page);
 
   await context.close();
+  logStep(domain, device, runId, "Finished");
   return obs;
 }
 
@@ -1420,18 +1449,14 @@ async function rejectViaPreferences(
   page: Page,
   obs: Record<string, any>,
   evidenceDir: string,
-  runId: number
+  runId: number,
+  onSetupReady?: () => Promise<void> | void
 ): Promise<{ ok: boolean; clickCount: number; details: string }> {
   // 1) เปิดหน้า settings/manage
   const opened = await clickBestEffort(page, MANAGE_RE);
   if (!opened) return { ok: false, clickCount: 0, details: "manage_not_found" };
 
   await page.waitForTimeout(1200);
-
-  // screenshot manage
-  const manageShot = path.join(evidenceDir, `run${runId}_manage.png`);
-  await page.screenshot({ path: manageShot, fullPage: true }).catch(() => {});
-  obs.screenshot_path_manage = manageShot;
 
   // 2) ตรวจ/ปิด toggle analytics & ads (best-effort)
   const t = await toggleOffNonEssentialBestEffort(page);
@@ -1440,6 +1465,13 @@ async function rejectViaPreferences(
   obs.default_on_analytics = t.default_on_analytics;
   obs.default_on_ads = t.default_on_ads;
   obs.dp3_flag = (t.default_on_analytics || t.default_on_ads) ? 1 : obs.dp3_flag;
+
+  // Capture the setup page after step 2 so the evidence reflects the toggles state.
+  const manageShot = path.join(evidenceDir, `run${runId}_manage.png`);
+  await page.screenshot({ path: manageShot, fullPage: true }).catch(() => {});
+  obs.screenshot_path_manage = manageShot;
+
+  await onSetupReady?.();
 
   // 3) กดปุ่มยืนยันตัวเลือกของฉัน/Save settings
   // กันไม่ให้ไปกด "ยอมรับทั้งหมด" ใน modal
